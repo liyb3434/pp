@@ -1,0 +1,73 @@
+name: Package All Pinpoint 3.1.0 Images (amd64)
+
+on:
+  workflow_dispatch:
+
+env:
+  ARCHIVE_NAME: pinpoint-3.1.0-full-amd64-images.tar.gz
+
+jobs:
+  package-images:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Free runner disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc || true
+          docker system prune -af || true
+          df -h
+
+      - name: Pull all images
+        run: |
+          set -euxo pipefail
+          images=(
+            pinpointdocker/pinpoint-web:3.1.0
+            pinpointdocker/pinpoint-collector:3.1.0
+            pinpointdocker/pinpoint-web:3.1.0-metric
+            pinpointdocker/pinpoint-collector:3.1.0-metric
+            pinpointdocker/pinpoint-hbase:3.1.0
+            pinpointdocker/pinpoint-batch:3.1.0
+            pinpointdocker/pinpoint-agent:3.1.0
+            mysql:8.0
+            zookeeper:3.4.13
+            redis:7.0.14
+            ubuntu/kafka:3.1-22.04_beta
+            apachepinot/pinot:1.0.0-11-amazoncorretto
+            zookeeper:3.8.0-temurin
+            telegraf:1.25.0
+          )
+          for image in "${images[@]}"; do
+            docker pull --platform linux/amd64 "$image"
+          done
+
+      - name: Export and compress images
+        run: |
+          set -euxo pipefail
+          docker save \
+            pinpointdocker/pinpoint-web:3.1.0 \
+            pinpointdocker/pinpoint-collector:3.1.0 \
+            pinpointdocker/pinpoint-web:3.1.0-metric \
+            pinpointdocker/pinpoint-collector:3.1.0-metric \
+            pinpointdocker/pinpoint-hbase:3.1.0 \
+            pinpointdocker/pinpoint-batch:3.1.0 \
+            pinpointdocker/pinpoint-agent:3.1.0 \
+            mysql:8.0 \
+            zookeeper:3.4.13 \
+            redis:7.0.14 \
+            ubuntu/kafka:3.1-22.04_beta \
+            apachepinot/pinot:1.0.0-11-amazoncorretto \
+            zookeeper:3.8.0-temurin \
+            telegraf:1.25.0 \
+          | gzip -1 > "${ARCHIVE_NAME}"
+          sha256sum "${ARCHIVE_NAME}" > "${ARCHIVE_NAME}.sha256"
+          ls -lh "${ARCHIVE_NAME}" "${ARCHIVE_NAME}.sha256"
+
+      - name: Upload complete image bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: pinpoint-3.1.0-full-amd64-images
+          path: |
+            ${{ env.ARCHIVE_NAME }}
+            ${{ env.ARCHIVE_NAME }}.sha256
+          retention-days: 7
+          compression-level: 0
