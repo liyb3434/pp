@@ -1,0 +1,81 @@
+name: Package Pinpoint 3.1.0 Images (amd64)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/build-pinpoint.yml"
+
+permissions:
+  contents: write
+
+env:
+  PINPOINT_VERSION: "3.1.0"
+  ARCHIVE_NAME: pinpoint-3.1.0-amd64-images.tar.gz
+  RELEASE_TAG: pinpoint-images-3.1.0
+
+jobs:
+  package-images:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Check available disk space
+        run: df -h
+
+      - name: Pull official Pinpoint images
+        run: |
+          set -euxo pipefail
+          images=(
+            "pinpointdocker/pinpoint-agent:${PINPOINT_VERSION}"
+            "pinpointdocker/pinpoint-collector:${PINPOINT_VERSION}"
+            "pinpointdocker/pinpoint-web:${PINPOINT_VERSION}"
+            "pinpointdocker/pinpoint-hbase:${PINPOINT_VERSION}"
+            "pinpointdocker/pinpoint-batch:${PINPOINT_VERSION}"
+          )
+          for image in "${images[@]}"; do
+            docker pull --platform linux/amd64 "$image"
+          done
+
+      - name: Export and compress images
+        run: |
+          set -euxo pipefail
+          docker save \
+            pinpointdocker/pinpoint-agent:${PINPOINT_VERSION} \
+            pinpointdocker/pinpoint-collector:${PINPOINT_VERSION} \
+            pinpointdocker/pinpoint-web:${PINPOINT_VERSION} \
+            pinpointdocker/pinpoint-hbase:${PINPOINT_VERSION} \
+            pinpointdocker/pinpoint-batch:${PINPOINT_VERSION} \
+          | gzip -1 > "${ARCHIVE_NAME}"
+          sha256sum "${ARCHIVE_NAME}" > "${ARCHIVE_NAME}.sha256"
+          ls -lh "${ARCHIVE_NAME}" "${ARCHIVE_NAME}.sha256"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pinpoint-3.1.0-amd64-images
+          path: |
+            ${{ env.ARCHIVE_NAME }}
+            ${{ env.ARCHIVE_NAME }}.sha256
+          retention-days: 7
+          compression-level: 0
+
+      - name: Create or update public GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          if ! gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            gh release create "${RELEASE_TAG}" \
+              --title "Pinpoint ${PINPOINT_VERSION} amd64 offline images" \
+              --notes "Official Pinpoint ${PINPOINT_VERSION} component images for linux/amd64 offline deployment."
+          fi
+          gh release upload "${RELEASE_TAG}" \
+            "${ARCHIVE_NAME}" \
+            "${ARCHIVE_NAME}.sha256" \
+            --clobber
