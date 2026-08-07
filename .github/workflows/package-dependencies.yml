@@ -1,0 +1,68 @@
+name: Package Pinpoint Dependencies (amd64)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/package-dependencies.yml"
+
+permissions:
+  contents: write
+
+env:
+  ARCHIVE_NAME: pinpoint-3.1.0-dependencies-amd64.tar.gz
+  RELEASE_TAG: pinpoint-dependencies-3.1.0
+
+jobs:
+  package-dependencies:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Pull dependency images
+        run: |
+          set -euxo pipefail
+          docker pull --platform linux/amd64 mysql:8.0
+          docker pull --platform linux/amd64 zookeeper:3.4.13
+          docker pull --platform linux/amd64 redis:7.0.14
+
+      - name: Export and compress images
+        run: |
+          set -euxo pipefail
+          docker save \
+            mysql:8.0 \
+            zookeeper:3.4.13 \
+            redis:7.0.14 \
+          | gzip -1 > "${ARCHIVE_NAME}"
+          sha256sum "${ARCHIVE_NAME}" > "${ARCHIVE_NAME}.sha256"
+          ls -lh "${ARCHIVE_NAME}" "${ARCHIVE_NAME}.sha256"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pinpoint-3.1.0-dependencies-amd64
+          path: |
+            ${{ env.ARCHIVE_NAME }}
+            ${{ env.ARCHIVE_NAME }}.sha256
+          retention-days: 7
+          compression-level: 0
+
+      - name: Create or update public GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          if ! gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            gh release create "${RELEASE_TAG}" \
+              --title "Pinpoint 3.1.0 dependency images (amd64)" \
+              --notes "MySQL 8.0, ZooKeeper 3.4.13, and Redis 7.0.14 images for linux/amd64 offline deployment."
+          fi
+          gh release upload "${RELEASE_TAG}" \
+            "${ARCHIVE_NAME}" \
+            "${ARCHIVE_NAME}.sha256" \
+            --clobber
