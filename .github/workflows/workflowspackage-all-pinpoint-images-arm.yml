@@ -31,19 +31,22 @@ jobs:
         run: |
           set -Eeuo pipefail
           git clone --depth 1 --branch v3.1.0 https://github.com/pinpoint-apm/pinpoint.git pinpoint-source
-          cp arm64-build/hbase.Dockerfile pinpoint-source/hbase/Dockerfile.arm64
+          # The official 3.1.0 HBase Dockerfile uses an amd64-only OpenJDK image.
+          # Keep the official scripts/config and replace only the base image.
+          sed 's|openjdk:8u342-slim|eclipse-temurin:8-jre-jammy|g' \
+            pinpoint-source/hbase/Dockerfile > pinpoint-source/hbase/Dockerfile.arm64
           docker buildx build --platform linux/arm64 --load \
             -f pinpoint-source/hbase/Dockerfile.arm64 \
             -t pinpointdocker/pinpoint-hbase:3.1.0 pinpoint-source/hbase
 
-          mkdir -p agent-build
+          # The official Agent Dockerfile is architecture-neutral; provide its
+          # expected release archive and build it for ARM64.
+          mkdir -p pinpoint-source/agent-module/agent/target
           curl -fL --retry 5 \
             https://github.com/pinpoint-apm/pinpoint/releases/download/v3.1.0/pinpoint-agent-3.1.0.tar.gz \
-            -o agent-build/pinpoint-agent-3.1.0.tar.gz
-          cp arm64-build/agent.Dockerfile agent-build/Dockerfile
-          cp pinpoint-source/agent-module/agent/Dockerfiles/configure-agent.sh agent-build/configure-agent.sh
+            -o pinpoint-source/agent-module/agent/target/pinpoint-agent-3.1.0.tar.gz
           docker buildx build --platform linux/arm64 --load \
-            -t pinpointdocker/pinpoint-agent:3.1.0 agent-build
+            -t pinpointdocker/pinpoint-agent:3.1.0 pinpoint-source/agent-module/agent
 
       - name: Pull and verify ARM64 images
         shell: bash
